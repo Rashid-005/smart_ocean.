@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  FISHERMAN
+  ADMIN
+}
+
+enum SafetyStatus {
+  SAFE
+  MODERATE
+  DANGEROUS
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model User {
+  id        String   @id @default(cuid())
+  fullName  String
+  phone     String   @unique
+  email     String?  @unique
+  island    String
+  password  String
+  language  String   @default("en")
+  role      Role     @default(FISHERMAN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fisherman       Fisherman?
+  reports         FishingReport[]
+  aiConversations AiConversation[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([island])
+  @@map("users")
+}
+
+model Fisherman {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  island    String
+  boatName  String?
+  boatType  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([island])
+  @@map("fishermen")
+}
+
+model FishingZone {
+  id              String          @id @default(cuid())
+  name            String          @unique
+  island          String
+  latitude        Float
+  longitude       Float
+  // PostGIS readiness: production migrates lat/lon to geometry(Point,4326)
+  // with GIST index. geomWkt carries WKT until PostGIS extension is enabled.
+  geomWkt         String?
+  potential       Int             @default(0)
+  confidence      ConfidenceLevel @default(LOW)
+  recommendedTime String          @default("06:00 - 10:00")
+  safety          SafetyStatus    @default(SAFE)
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  predictions ZonePrediction[]
+  reports     FishingReport[]
+
+  @@index([island])
+  @@index([latitude, longitude])
+  @@map("fishing_zones")
+}
+
+model ZonePrediction {
+  id              String          @id @default(cuid())
+  zoneId          String
+  potential       Int
+  confidence      ConfidenceLevel
+  species         String[]
+  recommendedTime String
+  modelVersion    String
+  generatedAt     DateTime        @default(now())
+
+  zone FishingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@index([zoneId])
+  @@index([modelVersion])
+  @@map("zone_predictions")
+}
+
+model OceanCondition {
+  id           String       @id @default(cuid())
+  timestamp    DateTime     @default(now())
+  windSpeedKmh Float
+  waveHeightM  Float
+  visibilityKm Float
+  temperatureC Float
+  description  String
+  safetyStatus SafetyStatus
+  source       String       @default("MOCK")
+
+  @@index([timestamp])
+  @@map("ocean_conditions")
+}
+
+model WeatherData {
+  id           String       @id @default(cuid())
+  timestamp    DateTime     @default(now())
+  windSpeedKmh Float
+  waveHeightM  Float
+  visibilityKm Float
+  temperatureC Float
+  description  String
+  safetyStatus SafetyStatus
+  source       String       @default("MOCK")
+
+  @@index([timestamp])
+  @@map("weather_data")
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  label     String
+  latitude  Float
+  longitude Float
+  geomWkt   String?
+  accuracy  Float?
+  source    String   @default("demo")
+  createdAt DateTime @default(now())
+
+  @@index([latitude, longitude])
+  @@map("locations")
+}
+
+model FishingReport {
+  id             String   @id @default(cuid())
+  userId         String
+  zoneId         String
+  date           DateTime
+  species        String
+  quantityKg     Float?
+  fuelUsedLiters Float?
+  observations   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  zone        FishingZone          @relation(fields: [zoneId], references: [id])
+  reportSpecies FishingReportSpecies[]
+
+  @@index([userId])
+  @@index([zoneId])
+  @@map("fishing_reports")
+}
+
+model FishingReportSpecies {
+  id       String @id @default(cuid())
+  reportId String
+  name     String
+  weightKg Float?
+
+  report FishingReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("fishing_report_species")
+}
+
+model AiConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([userId])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  sender         String
+  content        String
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("ai_messages")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model MlModel {
+  id        String   @id @default(cuid())
+  version   String   @unique
+  active    Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@map("ml_models")
+}
